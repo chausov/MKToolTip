@@ -228,6 +228,7 @@ open class MKToolTip: UIView {
         height += self.preferences.drawing.bubble.inset
         
         let widthInset = self.preferences.drawing.bubble.inset * 2
+//        let width = self.preferences.drawing.bubble.maxWidth
         let width = min(self.preferences.drawing.bubble.maxWidth, max(self.titleSize.width + widthInset, self.messageSize.width + widthInset))
         return CGSize(width: width, height: height)
         }()
@@ -351,7 +352,13 @@ open class MKToolTip: UIView {
     }
     
     private func createWindow(with viewController: UIViewController) {
-        self.containerWindow = UIWindow(frame: UIScreen.main.bounds)
+        if #available(iOS 13.0, *) {
+            if let currentWindowScene = UIApplication.shared.connectedScenes.first as?  UIWindowScene {
+                self.containerWindow = UIWindow(windowScene: currentWindowScene)
+            }
+        } else {
+            self.containerWindow = UIWindow(frame: UIScreen.main.bounds)
+        }
         self.containerWindow!.rootViewController = viewController
         self.containerWindow!.windowLevel = UIWindow.Level.alert + 1;
         self.containerWindow!.makeKeyAndVisible()
