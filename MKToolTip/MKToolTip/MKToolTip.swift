@@ -32,7 +32,13 @@ import UIKit
 
 public extension UIView {
 
-    @objc public func showToolTip(identifier: String, title: String? = nil, message: String, button: String? = nil, arrowPosition: MKToolTip.ArrowPosition, preferences: ToolTipPreferences = ToolTipPreferences(), delegate: MKToolTipDelegate? = nil) {
+    @objc public func showToolTip(identifier: String,
+                                  title: String? = nil,
+                                  message: String,
+                                  button: String? = nil,
+                                  arrowPosition: MKToolTip.ArrowPosition,
+                                  preferences: ToolTipPreferences = ToolTipPreferences(),
+                                  delegate: MKToolTipDelegate? = nil) {
         let tooltip = MKToolTip(view: self, identifier: identifier, title: title, message: message, button: button, arrowPosition: arrowPosition, preferences: preferences, delegate: delegate)
         tooltip.calculateFrame()
         tooltip.show()
@@ -165,6 +171,8 @@ open class MKToolTip: UIView {
     
     private var preferences: ToolTipPreferences
     
+    public static let toolTipWillAppearKeyNSNotification = NSNotification.Name("com.MKToolTip.WillAppear")
+    public static let toolTipWillDissapearKeyNSNotification = NSNotification.Name("com.MKToolTip.WillDissapear")
     // MARK: Lazy variables
     
     private lazy var gradient: CGGradient = { [unowned self] in
@@ -187,14 +195,22 @@ open class MKToolTip: UIView {
         return textSize
         }()
     
+    private lazy var preferredMessageSize: CGSize = { [unowned self] in
+        let widthInset = self.preferences.drawing.bubble.inset * 2
+        let width = preferredBubbleSize.width - widthInset
+        let size = CGSize(width: width,
+                          height: .greatestFiniteMagnitude)
+        return size
+    }()
+    
     private lazy var messageSize: CGSize = { [unowned self] in
-        var attributes = [NSAttributedString.Key.font : self.preferences.drawing.message.font]
-        
-        var textSize = self.message.boundingRect(with: CGSize(width: self.preferences.drawing.bubble.maxWidth - self.preferences.drawing.bubble.inset * 2, height: .greatestFiniteMagnitude), options: .usesLineFragmentOrigin, attributes: attributes, context: nil).size
-        
+        var textSize = self.message.boundingRect(with: self.preferredMessageSize,
+                                                 options: .usesLineFragmentOrigin,
+                                                 attributes: self.messageAttributes,
+                                                 context: nil).size
+       
         textSize.width = ceil(textSize.width)
         textSize.height = ceil(textSize.height)
-        
         return textSize
         }()
     
@@ -203,7 +219,12 @@ open class MKToolTip: UIView {
         
         var textSize = CGSize.zero
         if self.button != nil {
-            textSize = self.button!.boundingRect(with: CGSize(width: self.preferences.drawing.bubble.maxWidth - self.preferences.drawing.bubble.inset * 2, height: .greatestFiniteMagnitude), options: .usesLineFragmentOrigin, attributes: attributes, context: nil).size
+            let size = CGSize(width: self.preferences.drawing.bubble.maxWidth - self.preferences.drawing.bubble.inset * 2,
+                              height: .greatestFiniteMagnitude)
+            textSize = self.button!.boundingRect(with: size,
+                                                 options: .usesLineFragmentOrigin,
+                                                 attributes: attributes,
+                                                 context: nil).size
         }
         
         textSize.width = ceil(textSize.width)
@@ -212,8 +233,18 @@ open class MKToolTip: UIView {
         return textSize
         }()
     
+    private lazy var preferredBubbleSize: CGSize = { [unowned self] in
+        let widthInset = self.preferences.drawing.bubble.inset * 2
+        let bounds = UIScreen.main.bounds
+        let width = bounds.width - widthInset
+        let size = CGSize(width: width,
+                          height: self.preferences.drawing.bubble.inset)
+        return size
+    }()
+    
     private lazy var bubbleSize: CGSize = { [unowned self] in
-        var height = self.preferences.drawing.bubble.inset
+        var height = self.preferredBubbleSize.height
+        let width = self.preferredBubbleSize.width
         
         if self.title != nil {
             height += self.titleSize.height + self.preferences.drawing.bubble.spacing
@@ -227,9 +258,6 @@ open class MKToolTip: UIView {
         
         height += self.preferences.drawing.bubble.inset
         
-        let widthInset = self.preferences.drawing.bubble.inset * 2
-//        let width = self.preferences.drawing.bubble.maxWidth
-        let width = min(self.preferences.drawing.bubble.maxWidth, max(self.titleSize.width + widthInset, self.messageSize.width + widthInset))
         return CGSize(width: width, height: height)
         }()
     
@@ -262,6 +290,46 @@ open class MKToolTip: UIView {
         self.delegate = delegate
         super.init(frame: .zero)
         self.backgroundColor = .clear
+        
+        let notificationCenter = NotificationCenter.default
+        notificationCenter.addObserver(self,
+                                       selector: #selector(adjustForKeyboard),
+                                       name: UIResponder.keyboardWillHideNotification,
+                                       object: nil)
+        notificationCenter.addObserver(self,
+                                       selector: #selector(adjustForKeyboard),
+                                       name: UIResponder.keyboardWillChangeFrameNotification,
+                                       object: nil)
+    }
+    
+    var keyboardHeight = 0.0
+    
+    @objc func adjustForKeyboard(notification: Notification) {
+
+        guard let keyboardFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
+
+        keyboardHeight = keyboardFrame.height
+        // Reset the frame of your UIView or its constraints here
+        // For example:
+//        self.frame.origin.y += keyboardHeight
+        
+//        let keyboardScreenEndFrame = keyboardValue.cgRectValue
+//        let keyboardViewEndFrame = self.convert(keyboardScreenEndFrame,
+//                                                from: self.window)
+//
+//        if notification.name == UIResponder.keyboardWillHideNotification {
+//            script.contentInset = .zero
+//        } else {
+//            script.contentInset = UIEdgeInsets(top: 0,
+//                                               left: 0,
+//                                               bottom: keyboardViewEndFrame.height - self.safeAreaInsets.bottom,
+//                                               right: 0)
+//        }
+//
+//        script.scrollIndicatorInsets = script.contentInset
+//
+//        let selectedRange = script.selectedRange
+//        script.scrollRangeToVisible(selectedRange)
     }
     
     @available(*, unavailable)
@@ -277,8 +345,9 @@ open class MKToolTip: UIView {
     
     // MARK: Private methods
     
-    fileprivate func calculateFrame() {
-        let refViewFrame = presentingView.convert(presentingView.bounds, to: UIApplication.shared.keyWindow);
+    fileprivate func frame(forArrowPosition arrowPosition: ArrowPosition) -> CGRect {
+        let refViewFrame = presentingView.convert(presentingView.bounds,
+                                                  to: UIApplication.shared.keyWindow)
         
         var xOrigin: CGFloat = 0
         var yOrigin: CGFloat = 0
@@ -309,7 +378,13 @@ open class MKToolTip: UIView {
         }
         
         let calculatedFrame = CGRect(x: xOrigin, y: yOrigin, width: contentSize.width + spacingForBorder * 2, height: contentSize.height + spacingForBorder * 2)
-        frame = adjustFrame(calculatedFrame)
+        let frame = adjustFrame(calculatedFrame)
+        
+        return frame
+    }
+    
+    fileprivate func calculateFrame() {
+        frame = self.frame(forArrowPosition: arrowPosition)
     }
     
     private func adjustFrame(_ frame: CGRect) -> CGRect {
@@ -342,6 +417,8 @@ open class MKToolTip: UIView {
     }
     
     fileprivate func show() {
+        viewWillAppear()
+        
         let viewController = UIViewController()
         viewController.view.alpha = 0
         viewController.view.addSubview(self)
@@ -360,7 +437,7 @@ open class MKToolTip: UIView {
             self.containerWindow = UIWindow(frame: UIScreen.main.bounds)
         }
         self.containerWindow!.rootViewController = viewController
-        self.containerWindow!.windowLevel = UIWindow.Level.alert + 1;
+        self.containerWindow!.windowLevel = UIWindow.Level.alert// + 1;
         self.containerWindow!.makeKeyAndVisible()
     }
     
@@ -373,16 +450,28 @@ open class MKToolTip: UIView {
         transform = preferences.animating.showInitialTransform
         alpha = preferences.animating.showInitialAlpha
         
-        UIView.animate(withDuration: preferences.animating.showDuration, delay: 0, usingSpringWithDamping: preferences.animating.springDamping, initialSpringVelocity: preferences.animating.springVelocity, options: [.curveEaseInOut], animations: {
+        let frameY = self.frame.origin.y
+        
+        UIView.animate(withDuration: preferences.animating.showDuration,
+                       delay: 0,
+                       usingSpringWithDamping: preferences.animating.springDamping,
+                       initialSpringVelocity: preferences.animating.springVelocity,
+                       options: [.curveEaseInOut],
+                       animations: {
             self.transform = self.preferences.animating.showFinalTransform
             self.alpha = 1
             self.containerWindow?.rootViewController?.view.alpha = 1
-        }, completion: { (completed) in
+            
+//            self.frame.origin.y = frameY + self.keyboardHeight
+        },
+                       completion: { (completed) in
             self.viewDidAppear()
         })
     }
     
     private func dismissWithAnimation() {
+        self.viewWillDissapear()
+        
         UIView.animate(withDuration: preferences.animating.dismissDuration, delay: 0, usingSpringWithDamping: preferences.animating.springDamping, initialSpringVelocity: preferences.animating.springVelocity, options: [.curveEaseInOut], animations: {
             self.transform = self.preferences.animating.dismissTransform
             self.alpha = self.preferences.animating.dismissFinalAlpha
@@ -401,6 +490,21 @@ open class MKToolTip: UIView {
         drawBackgroundLayer()
         drawBubble(context)
         drawTexts(to: context)
+    }
+    
+    private func viewWillAppear() {
+        NotificationCenter.default.addObserver(self, selector: #selector(self.keyboardWillHide(_:)), name: UIResponder.keyboardWillHideNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(self.keyboardDidHide(_:)), name: UIResponder.keyboardDidHideNotification, object: nil)
+        
+        NotificationCenter.default.post(name: MKToolTip.toolTipWillAppearKeyNSNotification,
+                                        object: nil)
+    }
+    
+    private func viewWillDissapear() {
+        NotificationCenter.default.post(name: MKToolTip.toolTipWillDissapearKeyNSNotification,
+                                        object: nil)
+        
+        NotificationCenter.default.removeObserver(self)
     }
     
     private func viewDidAppear() {
@@ -513,30 +617,104 @@ open class MKToolTip: UIView {
     
     private func drawTexts(to context: CGContext) {
         context.saveGState()
-        let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.alignment = .left
-        paragraphStyle.lineBreakMode = NSLineBreakMode.byWordWrapping
         
         let xOrigin = bubbleFrame.x + preferences.drawing.bubble.inset
         var yOrigin = bubbleFrame.y + preferences.drawing.bubble.inset
         
         if title != nil {
             let titleRect = CGRect(x: xOrigin, y: yOrigin, width: titleSize.width, height: titleSize.height)
-            title!.draw(in: titleRect, withAttributes: [NSAttributedString.Key.font : preferences.drawing.title.font, NSAttributedString.Key.foregroundColor : preferences.drawing.title.color, NSAttributedString.Key.paragraphStyle : paragraphStyle])
+            let attributes = [NSAttributedString.Key.font : preferences.drawing.title.font,
+                              NSAttributedString.Key.foregroundColor : preferences.drawing.title.color,
+                              NSAttributedString.Key.paragraphStyle : self.paragraphStyle]
+            
+            title!.draw(in: titleRect, withAttributes: attributes)
             
             yOrigin = titleRect.y + titleRect.height + preferences.drawing.bubble.spacing
         }
         
-        let messageRect = CGRect(x: xOrigin, y: yOrigin, width: messageSize.width, height: messageSize.height)
-        message.draw(in: messageRect, withAttributes: [NSAttributedString.Key.font : preferences.drawing.message.font, NSAttributedString.Key.foregroundColor : preferences.drawing.message.color, NSAttributedString.Key.paragraphStyle : paragraphStyle])
+        let messageRect = CGRect(x: xOrigin,
+                                 y: yOrigin,
+                                 width: messageSize.width,
+                                 height: messageSize.height)
+        
+        
+        message.draw(in: messageRect, withAttributes: self.messageAttributes)
         
         if button != nil {
             yOrigin += messageRect.height + preferences.drawing.bubble.spacing
+            let attributes = [NSAttributedString.Key.font : preferences.drawing.button.font,
+                              NSAttributedString.Key.foregroundColor : preferences.drawing.button.color,
+                              NSAttributedString.Key.paragraphStyle : self.paragraphStyle]
+            let buttonRect = CGRect(x: xOrigin,
+                                    y: yOrigin,
+                                    width: buttonSize.width,
+                                    height: buttonSize.height)
+            button!.draw(in: buttonRect,
+                         withAttributes: attributes)
+        }
+    }
+    
+    private var paragraphStyle: NSMutableParagraphStyle {
+        let paragraphStyle = NSMutableParagraphStyle()
+//        paragraphStyle.alignment = .left
+//        paragraphStyle.lineBreakMode = NSLineBreakMode.byWordWrapping
+        
+        let bounds = UIScreen.main.bounds
+        let tabLocation = preferredMessageSize.width - 80.0
+//        paragraphStyle.defaultTabInterval = 200.0
+        paragraphStyle.tabStops = [
+            NSTextTab(textAlignment: .left, location: tabLocation, options: [:])
+        ]
+        
+        return paragraphStyle
+    }
+    
+    private var messageAttributes: [NSAttributedString.Key: Any] {
+        
+        let messagesAttributes = [NSAttributedString.Key.font : preferences.drawing.message.font,
+                                  NSAttributedString.Key.foregroundColor : preferences.drawing.message.color,
+                                  NSAttributedString.Key.paragraphStyle : self.paragraphStyle]
+        
+        return messagesAttributes
+    }
+    
+    @objc internal func keyboardWillHide(_ notification: Notification?) {
+        var animationCurve: UIView.AnimationOptions?
+        var animationDuration: TimeInterval?
+        var keyboardFrame: CGRect?
+       
+        let refViewFrame = presentingView.convert(presentingView.bounds,
+                                                  to: UIApplication.shared.keyWindow)
+        
+        if let info = notification?.userInfo {
+
+            if let kbFrame = info[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
+                keyboardFrame = kbFrame
+            }
             
-            let buttonRect = CGRect(x: xOrigin, y: yOrigin, width: buttonSize.width, height: buttonSize.height)
-            button!.draw(in: buttonRect, withAttributes: [NSAttributedString.Key.font : preferences.drawing.button.font, NSAttributedString.Key.foregroundColor : preferences.drawing.button.color, NSAttributedString.Key.paragraphStyle : paragraphStyle])
+            //  Getting keyboard animation.
+            if let curve = info[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt {
+                animationCurve = UIView.AnimationOptions(rawValue: curve).union(.beginFromCurrentState)
+            } else {
+                animationCurve = UIView.AnimationOptions.curveEaseOut.union(.beginFromCurrentState)
+            }
+
+            //  Getting keyboard animation duration
+            animationDuration = info[UIResponder.keyboardAnimationDurationUserInfoKey] as? TimeInterval ?? 0.25
         }
         
+        var newY = self.frame(forArrowPosition: self.arrowPosition).origin.y
+//        newY -= self.presentingView.frame.height
+        
+        UIView.animate(withDuration: animationDuration!,
+                       delay: 0,
+                       options: animationCurve!,
+                       animations: { () -> Void in
+            self.frame.y = newY
+        })
+    }
+
+    @objc internal func keyboardDidHide(_ notification: Notification) {
     }
 }
 
