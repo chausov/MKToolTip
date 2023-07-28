@@ -107,7 +107,7 @@ public extension UIBarItem {
         @objc public class Background: NSObject {
             @objc public var color: UIColor = UIColor.clear {
                 didSet {
-                    gradientColors = [UIColor.clear, color]
+                    gradientColors = [color, color]
                 }
             }
             @objc fileprivate var gradientLocations: [CGFloat] = [0.05, 1.0]
@@ -134,8 +134,16 @@ public extension UIBarItem {
         @objc public var dismissDuration: TimeInterval = 0.7
     }
     
+    public class StringAttributes: NSObject {
+        public var attributes: [([NSAttributedString.Key: Any], NSRange)] = []
+        
+        // In two column layout tabLocation is calculated from the right side of the view moves tab location towards the center.
+        public var tabLocation: CGFloat = 0.0
+    }
+    
     @objc public var drawing: Drawing = Drawing()
     @objc public var animating: Animating = Animating()
+    public var additionalStringAttributes: StringAttributes = StringAttributes()
     
     @objc public override init() {}
     
@@ -150,6 +158,8 @@ open class MKToolTip: UIView {
         case right
         case bottom
         case left
+        // automatic handle only top or bottom according to button position
+        case automatic
     }
     
     // MARK: Variables
@@ -203,16 +213,33 @@ open class MKToolTip: UIView {
         return size
     }()
     
+    private lazy var attributedMessage: NSMutableAttributedString = {
+        let attributedString: NSMutableAttributedString = NSMutableAttributedString(string: message,
+                                                                                    attributes: self.messageAttributes)
+        let additionalAttributes = preferences.additionalStringAttributes.attributes
+        if !additionalAttributes.isEmpty {
+            
+            additionalAttributes.forEach { (attributes, range) in
+                attributedString.addAttributes(attributes, range: range)
+            }
+        }
+        
+        return attributedString
+    }()
+    
     private lazy var messageSize: CGSize = { [unowned self] in
-        var textSize = self.message.boundingRect(with: self.preferredMessageSize,
-                                                 options: .usesLineFragmentOrigin,
-                                                 attributes: self.messageAttributes,
-                                                 context: nil).size
-       
+//        var textSize = self.message.boundingRect(with: self.preferredMessageSize,
+//                                                 options: .usesLineFragmentOrigin,
+//                                                 attributes: self.messageAttributes,
+//                                                 context: nil).size
+        
+        var textSize = self.attributedMessage.boundingRect(with: self.preferredMessageSize,
+                                                           options: .usesLineFragmentOrigin,
+                                                           context: nil).size
         textSize.width = ceil(textSize.width)
         textSize.height = ceil(textSize.height)
         return textSize
-        }()
+    }()
     
     private lazy var buttonSize: CGSize = { [unowned self] in
         var attributes = [NSAttributedString.Key.font : self.preferences.drawing.button.font]
@@ -266,7 +293,7 @@ open class MKToolTip: UIView {
         var width: CGFloat = 0
         
         switch self.arrowPosition {
-        case .top, .bottom:
+        case .top, .bottom, .automatic:
             height = self.preferences.drawing.arrow.size.height + self.bubbleSize.height
             width = self.bubbleSize.width
         case .right, .left:
@@ -279,7 +306,15 @@ open class MKToolTip: UIView {
     
     // MARK: Initializer
     
-    init(view: UIView, identifier: String, title: String? = nil, message: String, button: String? = nil, arrowPosition: ArrowPosition, preferences: ToolTipPreferences, delegate: MKToolTipDelegate? = nil) {
+    init(view: UIView,
+         identifier: String,
+         title: String? = nil,
+         message: String,
+         button: String? = nil,
+         arrowPosition: ArrowPosition,
+         preferences: ToolTipPreferences,
+         delegate: MKToolTipDelegate? = nil) {
+        
         self.presentingView = view
         self.identifier = identifier
         self.title = title
@@ -288,7 +323,9 @@ open class MKToolTip: UIView {
         self.arrowPosition = arrowPosition
         self.preferences = preferences
         self.delegate = delegate
+        
         super.init(frame: .zero)
+        
         self.backgroundColor = .clear
         
         let notificationCenter = NotificationCenter.default
@@ -300,6 +337,10 @@ open class MKToolTip: UIView {
                                        selector: #selector(adjustForKeyboard),
                                        name: UIResponder.keyboardWillChangeFrameNotification,
                                        object: nil)
+        
+        if self.arrowPosition == .automatic {
+            self.applyAutomaticArrowPosition()
+        }
     }
     
     var keyboardHeight = 0.0
@@ -345,6 +386,18 @@ open class MKToolTip: UIView {
     
     // MARK: Private methods
     
+    fileprivate func applyAutomaticArrowPosition() {
+        if let windowFrame = UIApplication.shared.keyWindow?.frame {
+            let refViewFrame = presentingView.convert(presentingView.bounds,
+                                                      to: UIApplication.shared.keyWindow)
+            if refViewFrame.origin.y < windowFrame.height/2 {
+                self.arrowPosition = .top
+            } else {
+                self.arrowPosition = .bottom
+            }
+        }
+    }
+    
     fileprivate func frame(forArrowPosition arrowPosition: ArrowPosition) -> CGRect {
         let refViewFrame = presentingView.convert(presentingView.bounds,
                                                   to: UIApplication.shared.keyWindow)
@@ -375,6 +428,8 @@ open class MKToolTip: UIView {
             yOrigin = refViewFrame.center.y - contentSize.height / 2
             preferences.drawing.arrow.tip = CGPoint(x: spacingForBorder, y: refViewFrame.center.y - yOrigin)
             bubbleFrame = CGRect(x: preferences.drawing.arrow.size.height + spacingForBorder, y: spacingForBorder, width: bubbleSize.width, height: bubbleSize.height)
+        case .automatic:
+            break
         }
         
         let calculatedFrame = CGRect(x: xOrigin, y: yOrigin, width: contentSize.width + spacingForBorder * 2, height: contentSize.height + spacingForBorder * 2)
@@ -525,7 +580,11 @@ open class MKToolTip: UIView {
             let refViewFrame = presentingView.convert(presentingView.bounds, to: UIApplication.shared.keyWindow);
             let radius = refViewFrame.center.farCornerDistance()
             let frame = view.bounds
-            let layer = RadialGradientBackgroundLayer(frame: frame, center: refViewFrame.center, radius: radius, locations: preferences.drawing.background.gradientLocations, colors: preferences.drawing.background.gradientColors)
+            let layer = RadialGradientBackgroundLayer(frame: frame,
+                                                      center: refViewFrame.center,
+                                                      radius: radius,
+                                                      locations: preferences.drawing.background.gradientLocations,
+                                                      colors: preferences.drawing.background.gradientColors)
             view.layer.insertSublayer(layer, at: 0)
         }
     }
@@ -580,6 +639,8 @@ open class MKToolTip: UIView {
             addTopArc(to: path)
             path.addLine(to: CGPoint(x: preferences.drawing.arrow.tip.x + preferences.drawing.arrow.size.height, y: preferences.drawing.arrow.tip.y - preferences.drawing.arrow.size.width / 2))
             addArrowTipArc(with: startingPoint, to: path)
+        case .automatic:
+            break
         }
         
         path.closeSubpath()
@@ -637,8 +698,7 @@ open class MKToolTip: UIView {
                                  width: messageSize.width,
                                  height: messageSize.height)
         
-        
-        message.draw(in: messageRect, withAttributes: self.messageAttributes)
+        self.attributedMessage.draw(in: messageRect)
         
         if button != nil {
             yOrigin += messageRect.height + preferences.drawing.bubble.spacing
@@ -660,7 +720,7 @@ open class MKToolTip: UIView {
 //        paragraphStyle.lineBreakMode = NSLineBreakMode.byWordWrapping
         
         let bounds = UIScreen.main.bounds
-        let tabLocation = preferredMessageSize.width - 80.0
+        let tabLocation: CGFloat = preferredMessageSize.width - preferences.additionalStringAttributes.tabLocation
 //        paragraphStyle.defaultTabInterval = 200.0
         paragraphStyle.tabStops = [
             NSTextTab(textAlignment: .left, location: tabLocation, options: [:])
@@ -751,7 +811,9 @@ private class RadialGradientBackgroundLayer: CALayer {
         ctx.saveGState()
         let colorSpace = CGColorSpaceCreateDeviceRGB()
         let colors = self.colors.map { $0.cgColor }
-        let gradient = CGGradient(colorsSpace: colorSpace, colors: colors as CFArray, locations: locations)
+        let gradient = CGGradient(colorsSpace: colorSpace,
+                                  colors: colors as CFArray,
+                                  locations: locations)
         ctx.drawRadialGradient(gradient!, startCenter: center, startRadius: 0, endCenter: center, endRadius: radius, options: [])
         ctx.restoreGState()
     }
