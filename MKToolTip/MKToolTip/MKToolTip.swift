@@ -568,6 +568,9 @@ open class MKToolTip: UIView {
     }
     
     private func viewDidDisappear() {
+        self.preferences.additionalStringAttributes.attributes.removeAll()
+        self.preferences.additionalStringAttributes.tabLocation = 0.0
+        
         let viewDidDisappearDate = Date()
         let timeInterval = viewDidDisappearDate.timeIntervalSince(self.viewDidAppearDate)
         self.delegate?.toolTipViewDidDisappear(for: self.identifier, with: timeInterval)
